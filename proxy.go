@@ -200,7 +200,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 		nr, err := io.Copy(copyWriter, resp.Body)
 		if err := resp.Body.Close(); err != nil {
-			ctx.Warnf("Can't close response body %v", err)
+			ctx.Logf("Can't close response body %v", err)
 		}
 		ctx.Logf("Copied %v bytes to client error=%v", nr, err)
 	}
