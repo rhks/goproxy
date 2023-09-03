@@ -160,7 +160,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 		ctx.Logf("Assuming CONNECT is plain HTTP tunneling, mitm proxying it")
 		targetSiteCon, err := proxy.connectDial(ctx, "tcp", host)
 		if err != nil {
-			ctx.Warnf("Error dialing to %s: %s", host, err.Error())
+			ctx.Logf("Error dialing to %s: %s", host, err.Error())
 			return
 		}
 		for {
@@ -168,7 +168,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			remote := bufio.NewReader(targetSiteCon)
 			req, err := http.ReadRequest(client)
 			if err != nil && err != io.EOF {
-				ctx.Warnf("cannot read request of MITM HTTP client: %+#v", err)
+				ctx.Logf("cannot read request of MITM HTTP client: %+#v", err)
 			}
 			if err != nil {
 				return
@@ -212,7 +212,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			//TODO: cache connections to the remote website
 			rawClientTls := tls.Server(proxyClient, tlsConfig)
 			if err := rawClientTls.Handshake(); err != nil {
-				ctx.Warnf("Cannot handshake client %v %v", r.Host, err)
+				ctx.Logf("Cannot handshake client %v %v", r.Host, err)
 				return
 			}
 			defer rawClientTls.Close()
@@ -224,7 +224,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 					return
 				}
 				if err != nil {
-					ctx.Warnf("Cannot read TLS request from mitm'd client %v %v", r.Host, err)
+					ctx.Logf("Cannot read TLS request from mitm'd client %v %v", r.Host, err)
 					return
 				}
 				req.RemoteAddr = r.RemoteAddr // since we're converting the request, need to carry over the original connecting IP as well
@@ -247,9 +247,9 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 					}
 					if err != nil {
 						if req.URL != nil {
-							ctx.Warnf("Illegal URL %s", "https://"+r.Host+req.URL.Path)
+							ctx.Logf("Illegal URL %s", "https://"+r.Host+req.URL.Path)
 						} else {
-							ctx.Warnf("Illegal URL %s", "https://"+r.Host)
+							ctx.Logf("Illegal URL %s", "https://"+r.Host)
 						}
 						return
 					}
@@ -261,7 +261,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 						return ctx.RoundTrip(req)
 					}()
 					if err != nil {
-						ctx.Warnf("Cannot read TLS response from mitm'd server %v", err)
+						ctx.Logf("Cannot read TLS response from mitm'd server %v", err)
 						return
 					}
 					ctx.Logf("resp %v", resp.Status)
@@ -276,7 +276,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 				}
 				// always use 1.1 to support chunked encoding
 				if _, err := io.WriteString(rawClientTls, "HTTP/1.1"+" "+statusCode+text+"\r\n"); err != nil {
-					ctx.Warnf("Cannot write TLS response HTTP status from mitm'd client: %v", err)
+					ctx.Logf("Cannot write TLS response HTTP status from mitm'd client: %v", err)
 					return
 				}
 
@@ -291,11 +291,11 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 				// Force connection close otherwise chrome will keep CONNECT tunnel open forever
 				resp.Header.Set("Connection", "close")
 				if err := resp.Header.Write(rawClientTls); err != nil {
-					ctx.Warnf("Cannot write TLS response header from mitm'd client: %v", err)
+					ctx.Logf("Cannot write TLS response header from mitm'd client: %v", err)
 					return
 				}
 				if _, err = io.WriteString(rawClientTls, "\r\n"); err != nil {
-					ctx.Warnf("Cannot write TLS response header end from mitm'd client: %v", err)
+					ctx.Logf("Cannot write TLS response header end from mitm'd client: %v", err)
 					return
 				}
 
@@ -304,15 +304,15 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 				} else {
 					chunked := newChunkedWriter(rawClientTls)
 					if _, err := io.Copy(chunked, resp.Body); err != nil {
-						ctx.Warnf("Cannot write TLS response body from mitm'd client: %v", err)
+						ctx.Logf("Cannot write TLS response body from mitm'd client: %v", err)
 						return
 					}
 					if err := chunked.Close(); err != nil {
-						ctx.Warnf("Cannot write TLS chunked EOF from mitm'd client: %v", err)
+						ctx.Logf("Cannot write TLS chunked EOF from mitm'd client: %v", err)
 						return
 					}
 					if _, err = io.WriteString(rawClientTls, "\r\n"); err != nil {
-						ctx.Warnf("Cannot write TLS response chunked trailer from mitm'd client: %v", err)
+						ctx.Logf("Cannot write TLS response chunked trailer from mitm'd client: %v", err)
 						return
 					}
 				}
@@ -325,7 +325,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 	case ConnectReject:
 		if ctx.Resp != nil {
 			if err := ctx.Resp.Write(proxyClient); err != nil {
-				ctx.Warnf("Cannot write response that reject http CONNECT: %v", err)
+				ctx.Logf("Cannot write response that reject http CONNECT: %v", err)
 			}
 		}
 		proxyClient.Close()
@@ -334,23 +334,23 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 
 func httpError(w io.WriteCloser, ctx *ProxyCtx, err error) {
 	if _, err := io.WriteString(w, "HTTP/1.1 502 Bad Gateway\r\n\r\n"); err != nil {
-		ctx.Warnf("Error responding to client: %s", err)
+		ctx.Logf("Error responding to client: %s", err)
 	}
 	if err := w.Close(); err != nil {
-		ctx.Warnf("Error closing client connection: %s", err)
+		ctx.Logf("Error closing client connection: %s", err)
 	}
 }
 
 func copyOrWarn(ctx *ProxyCtx, dst io.Writer, src io.Reader, wg *sync.WaitGroup) {
 	if _, err := io.Copy(dst, src); err != nil {
-		ctx.Warnf("Error copying to client: %s", err)
+		ctx.Logf("Error copying to client: %s", err)
 	}
 	wg.Done()
 }
 
 func copyAndClose(ctx *ProxyCtx, dst, src halfClosable) {
 	if _, err := io.Copy(dst, src); err != nil {
-		ctx.Warnf("Error copying to client: %s", err)
+		ctx.Logf("Error copying to client: %s", err)
 	}
 
 	dst.CloseWrite()
@@ -480,7 +480,7 @@ func TLSConfigFromCA(ca *tls.Certificate) func(host string, ctx *ProxyCtx) (*tls
 		}
 
 		if err != nil {
-			ctx.Warnf("Cannot sign host certificate with provided CA: %s", err)
+			ctx.Logf("Cannot sign host certificate with provided CA: %s", err)
 			return nil, err
 		}
 
