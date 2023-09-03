@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,19 +27,23 @@ func isWebSocketRequest(r *http.Request) bool {
 }
 
 func (proxy *ProxyHttpServer) serveWebsocketTLS(ctx *ProxyCtx, w http.ResponseWriter, req *http.Request, tlsConfig *tls.Config, clientConn *tls.Conn) {
-	targetURL := url.URL{Scheme: "wss", Host: req.URL.Host, Path: req.URL.Path}
+	host, port, _ := net.SplitHostPort(req.URL.Host)
+	if port == "" {
+		host += ":443"
+	}
+	targetURL := url.URL{Scheme: "wss", Host: host, Path: req.URL.Path}
 
 	// Connect to upstream
 	targetConn, err := tls.Dial("tcp", targetURL.Host, tlsConfig)
 	if err != nil {
-		ctx.Warnf("Error dialing target site: %v", err)
+		ctx.Logf("Error dialing target site: %v", err)
 		return
 	}
 	defer targetConn.Close()
 
 	// Perform handshake
 	if err := proxy.websocketHandshake(ctx, req, targetConn, clientConn); err != nil {
-		ctx.Warnf("Websocket handshake error: %v", err)
+		ctx.Logf("Websocket handshake error: %v", err)
 		return
 	}
 
@@ -47,11 +52,15 @@ func (proxy *ProxyHttpServer) serveWebsocketTLS(ctx *ProxyCtx, w http.ResponseWr
 }
 
 func (proxy *ProxyHttpServer) serveWebsocket(ctx *ProxyCtx, w http.ResponseWriter, req *http.Request) {
-	targetURL := url.URL{Scheme: "ws", Host: req.URL.Host, Path: req.URL.Path}
+	host, port, _ := net.SplitHostPort(req.URL.Host)
+	if port == "" {
+		host += ":80"
+	}
+	targetURL := url.URL{Scheme: "ws", Host: host, Path: req.URL.Path}
 
 	targetConn, err := proxy.connectDial(ctx, "tcp", targetURL.Host)
 	if err != nil {
-		ctx.Warnf("Error dialing target site: %v", err)
+		ctx.Logf("Error dialing target site: %v", err)
 		return
 	}
 	defer targetConn.Close()
@@ -63,13 +72,13 @@ func (proxy *ProxyHttpServer) serveWebsocket(ctx *ProxyCtx, w http.ResponseWrite
 	}
 	clientConn, _, err := hj.Hijack()
 	if err != nil {
-		ctx.Warnf("Hijack error: %v", err)
+		ctx.Logf("Hijack error: %v", err)
 		return
 	}
 
 	// Perform handshake
 	if err := proxy.websocketHandshake(ctx, req, targetConn, clientConn); err != nil {
-		ctx.Warnf("Websocket handshake error: %v", err)
+		ctx.Logf("Websocket handshake error: %v", err)
 		return
 	}
 
@@ -81,7 +90,7 @@ func (proxy *ProxyHttpServer) websocketHandshake(ctx *ProxyCtx, req *http.Reques
 	// write handshake request to target
 	err := req.Write(targetSiteConn)
 	if err != nil {
-		ctx.Warnf("Error writing upgrade request: %v", err)
+		ctx.Logf("Error writing upgrade request: %v", err)
 		return err
 	}
 
@@ -90,7 +99,7 @@ func (proxy *ProxyHttpServer) websocketHandshake(ctx *ProxyCtx, req *http.Reques
 	// Read handshake response from target
 	resp, err := http.ReadResponse(targetTLSReader, req)
 	if err != nil {
-		ctx.Warnf("Error reading handhsake response  %v", err)
+		ctx.Logf("Error reading handhsake response  %v", err)
 		return err
 	}
 
@@ -100,7 +109,7 @@ func (proxy *ProxyHttpServer) websocketHandshake(ctx *ProxyCtx, req *http.Reques
 	// Proxy handshake back to client
 	err = resp.Write(clientConn)
 	if err != nil {
-		ctx.Warnf("Error writing handshake response: %v", err)
+		ctx.Logf("Error writing handshake response: %v", err)
 		return err
 	}
 	return nil
@@ -110,7 +119,7 @@ func (proxy *ProxyHttpServer) proxyWebsocket(ctx *ProxyCtx, dest io.ReadWriter, 
 	errChan := make(chan error, 2)
 	cp := func(dst io.Writer, src io.Reader) {
 		_, err := io.Copy(dst, src)
-		ctx.Warnf("Websocket error: %v", err)
+		ctx.Logf("Websocket error: %v", err)
 		errChan <- err
 	}
 
