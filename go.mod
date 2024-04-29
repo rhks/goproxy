@@ -1,3 +1,3 @@
-module github.com/rhks/goproxy
+module github.com/elazarl/goproxy
 
-require github.com/rhks/goproxy/ext v0.0.0-20190711103511-473e67f1d7d2
+require github.com/elazarl/goproxy/ext v0.0.0-20190711103511-473e67f1d7d2
