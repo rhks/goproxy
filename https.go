@@ -34,7 +34,6 @@ var (
 	MitmConnect     = &ConnectAction{Action: ConnectMitm, TLSConfig: TLSConfigFromCA(&GoproxyCa)}
 	HTTPMitmConnect = &ConnectAction{Action: ConnectHTTPMitm, TLSConfig: TLSConfigFromCA(&GoproxyCa)}
 	RejectConnect   = &ConnectAction{Action: ConnectReject, TLSConfig: TLSConfigFromCA(&GoproxyCa)}
-	httpsRegexp     = regexp.MustCompile(`^https:\/\/`)
 )
 
 // ConnectAction enables the caller to override the standard connect flow.
@@ -195,6 +194,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			}
 		}
 	case ConnectMitm:
+		proxy.ConnSemaphore <- struct{}{}
 		proxyClient.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
 		ctx.Logf("Assuming CONNECT is TLS, mitm proxying it")
 		// this goes in a separate goroutine, so that the net/http server won't think we're
@@ -212,6 +212,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 		}
 		go func() {
 			//TODO: cache connections to the remote website
+			defer func() { <-proxy.ConnSemaphore }()
 			rawClientTls := tls.Server(proxyClient, tlsConfig)
 			if err := rawClientTls.Handshake(); err != nil {
 				ctx.Logf("Cannot handshake client %v %v", r.Host, err)
@@ -232,7 +233,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 				req.RemoteAddr = r.RemoteAddr // since we're converting the request, need to carry over the original connecting IP as well
 				ctx.Logf("req %v", r.Host)
 
-				if !httpsRegexp.MatchString(req.URL.String()) {
+				if !strings.HasPrefix(req.URL.String(), "https") {
 					req.URL, err = url.Parse("https://" + r.Host + req.URL.String())
 				}
 
