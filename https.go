@@ -129,7 +129,6 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 		}
 		targetSiteCon, err := proxy.connectDial(ctx, "tcp", host)
 		if err != nil {
-			ctx.Warnf("Error dialing to %s: %s", host, err.Error())
 			httpError(proxyClient, ctx, err)
 			return
 		}
@@ -214,11 +213,11 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			//TODO: cache connections to the remote website
 			defer func() { <-proxy.ConnSemaphore }()
 			rawClientTls := tls.Server(proxyClient, tlsConfig)
+			defer rawClientTls.Close()
 			if err := rawClientTls.Handshake(); err != nil {
 				ctx.Logf("Cannot handshake client %v %v", r.Host, err)
 				return
 			}
-			defer rawClientTls.Close()
 			clientTlsReader := bufio.NewReader(rawClientTls)
 			for !isEof(clientTlsReader) {
 				req, err := http.ReadRequest(clientTlsReader)
@@ -243,6 +242,30 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 
 				req, resp := proxy.filterRequest(req, ctx)
 				if resp == nil {
+					if req.Method == "PRI" {
+						// Handle HTTP/2 connections.
+
+						// NOTE: As of 1.22, golang's http module will not recognize or
+						// parse the HTTP Body for PRI requests. This leaves the body of
+						// the http2.ClientPreface ("SM\r\n\r\n") on the wire which we need
+						// to clear before setting up the connection.
+						_, err := clientTlsReader.Discard(6)
+						if err != nil {
+							ctx.Warnf("Failed to process HTTP2 client preface: %v", err)
+							return
+						}
+						if !proxy.AllowHTTP2 {
+							ctx.Warnf("HTTP2 connection failed: disallowed")
+							return
+						}
+						tr := H2Transport{clientTlsReader, rawClientTls, tlsConfig.Clone(), host}
+						if _, err := tr.RoundTrip(req); err != nil {
+							ctx.Warnf("HTTP2 connection failed: %v", err)
+						} else {
+							ctx.Logf("Exiting on EOF")
+						}
+						return
+					}
 					if isWebSocketRequest(req) {
 						ctx.Logf("Request looks like websocket upgrade.")
 						proxy.serveWebsocketTLS(ctx, w, req, tlsConfig, rawClientTls)
