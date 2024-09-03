@@ -32,6 +32,7 @@ type ProxyHttpServer struct {
 	ConnectDialWithReq func(req *http.Request, network string, addr string) (net.Conn, error)
 	CertStore          CertStorage
 	KeepHeader         bool
+	AllowHTTP2         bool
 	ConnSemaphore      chan struct{}
 }
 
