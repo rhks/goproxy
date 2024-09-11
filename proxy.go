@@ -59,10 +59,12 @@ func isEof(r *bufio.Reader) bool {
 	return false
 }
 
-func (proxy *ProxyHttpServer) filterRequest(r *http.Request, ctx *ProxyCtx) (req *http.Request, resp *http.Response) {
-	req = r
+func (proxy *ProxyHttpServer) filterRequest(reqOrig *http.Request, ctx *ProxyCtx) (req *http.Request, resp *http.Response) {
+	req = reqOrig
+	ctx.Req = req
 	for _, h := range proxy.reqHandlers {
 		req, resp = h.Handle(req, ctx)
+		ctx.Req = req
 		// non-nil resp means the handler decided to skip sending the request
 		// and return canned response instead.
 		if resp != nil {
@@ -71,6 +73,7 @@ func (proxy *ProxyHttpServer) filterRequest(r *http.Request, ctx *ProxyCtx) (req
 	}
 	return
 }
+
 func (proxy *ProxyHttpServer) filterResponse(respOrig *http.Response, ctx *ProxyCtx) (resp *http.Response) {
 	resp = respOrig
 	for _, h := range proxy.respHandlers {
@@ -126,6 +129,8 @@ func (fw flushWriter) Write(p []byte) (int, error) {
 
 // Standard net/http function. Shouldn't be used directly, http.Serve will use it.
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	proxy.ConnSemaphore <- struct{}{}
+	defer func() { <-proxy.ConnSemaphore }()
 	//r.Header["X-Forwarded-For"] = w.RemoteAddr()
 	if r.Method == "CONNECT" {
 		proxy.handleHttps(w, r)
@@ -216,7 +221,7 @@ func NewProxyHttpServer() *ProxyHttpServer {
 		NonproxyHandler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, "This is a proxy server. Does not respond to non-proxy requests.", 500)
 		}),
-		Tr: 	       &http.Transport{TLSClientConfig: tlsClientSkipVerify, Proxy: http.ProxyFromEnvironment},
+		Tr:            &http.Transport{TLSClientConfig: tlsClientSkipVerify, Proxy: http.ProxyFromEnvironment},
 		ConnSemaphore: make(chan struct{}, 9999),
 	}
 
