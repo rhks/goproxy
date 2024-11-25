@@ -61,7 +61,7 @@ func isEof(r *bufio.Reader) bool {
 
 func (proxy *ProxyHttpServer) filterRequest(reqOrig *http.Request, ctx *ProxyCtx) (req *http.Request, resp *http.Response) {
 	req = reqOrig
-	ctx.Req = req
+	ctx.Req = reqOrig
 	for _, h := range proxy.reqHandlers {
 		req, resp = h.Handle(req, ctx)
 		ctx.Req = req
@@ -76,9 +76,10 @@ func (proxy *ProxyHttpServer) filterRequest(reqOrig *http.Request, ctx *ProxyCtx
 
 func (proxy *ProxyHttpServer) filterResponse(respOrig *http.Response, ctx *ProxyCtx) (resp *http.Response) {
 	resp = respOrig
+	ctx.Resp = respOrig
 	for _, h := range proxy.respHandlers {
-		ctx.Resp = resp
 		resp = h.Handle(resp, ctx)
+		ctx.Resp = resp
 	}
 	return
 }
@@ -131,6 +132,7 @@ func (fw flushWriter) Write(p []byte) (int, error) {
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	proxy.ConnSemaphore <- struct{}{}
 	defer func() { <-proxy.ConnSemaphore }()
+
 	//r.Header["X-Forwarded-For"] = w.RemoteAddr()
 	if r.Method == "CONNECT" {
 		proxy.handleHttps(w, r)
@@ -165,7 +167,7 @@ func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 		var origBody io.ReadCloser
 
-		if resp != nil {
+		if resp.Body != nil {
 			origBody = resp.Body
 			defer origBody.Close()
 		}
