@@ -135,6 +135,7 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 		}
 		targetSiteCon, err := proxy.connectDial(ctx, "tcp", host)
 		if err != nil {
+			ctx.Warnf("Error dialing to %s: %s", host, err.Error())
 			httpError(proxyClient, ctx, err)
 			return
 		}
@@ -222,7 +223,9 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			defer func() { <-proxy.ConnSemaphore }()
 			//TODO: cache connections to the remote website
 			rawClientTls := tls.Server(proxyClient, tlsConfig)
-			defer rawClientTls.Close()
+			if rawClientTls != nil {
+				defer rawClientTls.Close()
+			}
 			if err := rawClientTls.Handshake(); err != nil {
 				ctx.Logf("Cannot handshake client %v %v", r.Host, err)
 				return
