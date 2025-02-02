@@ -130,9 +130,6 @@ func (fw flushWriter) Write(p []byte) (int, error) {
 
 // Standard net/http function. Shouldn't be used directly, http.Serve will use it.
 func (proxy *ProxyHttpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	proxy.ConnSemaphore <- struct{}{}
-	defer func() { <-proxy.ConnSemaphore }()
-
 	//r.Header["X-Forwarded-For"] = w.RemoteAddr()
 	if r.Method == "CONNECT" {
 		proxy.handleHttps(w, r)
