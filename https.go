@@ -129,7 +129,6 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 	}
 	switch todo.Action {
 	case ConnectAccept:
-		proxy.ConnSemaphore <- struct{}{}
 		if !hasPort.MatchString(host) {
 			host += ":80"
 		}
@@ -149,7 +148,6 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			go copyAndClose(ctx, proxyClientTCP, targetTCP)
 		} else {
 			go func() {
-				defer func() { <-proxy.ConnSemaphore }()
 				var wg sync.WaitGroup
 				wg.Add(2)
 				go copyOrWarn(ctx, targetSiteCon, proxyClient, &wg)
@@ -160,10 +158,8 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			}()
 		}
 	case ConnectHijack:
-		proxy.ConnSemaphore <- struct{}{}
 		todo.Hijack(r, proxyClient, ctx)
 	case ConnectHTTPMitm:
-		proxy.ConnSemaphore <- struct{}{}
 		proxyClient.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
 		ctx.Logf("Assuming CONNECT is plain HTTP tunneling, mitm proxying it")
 		targetSiteCon, err := proxy.connectDial(ctx, "tcp", host)
@@ -363,11 +359,9 @@ func (proxy *ProxyHttpServer) handleHttps(w http.ResponseWriter, r *http.Request
 			ctx.Logf("Exiting on EOF")
 		}()
 	case ConnectProxyAuthHijack:
-		proxy.ConnSemaphore <- struct{}{}
 		proxyClient.Write([]byte("HTTP/1.1 407 Proxy Authentication Required\r\n"))
 		todo.Hijack(r, proxyClient, ctx)
 	case ConnectReject:
-		proxy.ConnSemaphore <- struct{}{}
 		if ctx.Resp != nil {
 			if err := ctx.Resp.Write(proxyClient); err != nil {
 				ctx.Logf("Cannot write response that reject http CONNECT: %v", err)
